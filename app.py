@@ -37,11 +37,16 @@ if uploaded_file is not None:
         st.subheader("AI解析コントロール")
         
         # Streamlit SecretsからAPIキーを取得
-        api_key = st.secrets.get("GEMINI_API_KEY", "")
-        
+        api_key = ""
+        try:
+            api_key = st.secrets.get("GEMINI_API_KEY", "")
+        except Exception:
+            pass
+            
         if not api_key:
-            st.warning("⚠️ Streamlit Secrets に `GEMINI_API_KEY` が設定されていません。")
+            st.error("⚠️ Streamlit Secrets に `GEMINI_API_KEY` が設定されていません。アプリの設定（Settings -> Secrets）をご確認ください。")
         else:
+            st.success("🔑 APIキーは正常に読み込まれています。")
             if st.button("🚀 領収書をAIで解析して追加", type="primary"):
                 with st.spinner("AIがレシートを解析しています（数秒かかります）..."):
                     try:
@@ -71,7 +76,6 @@ if uploaded_file is not None:
                         ]
                         """
                         
-                        # モデル名を確実に動作する "gemini-2.0-flash" に変更
                         response = client.models.generate_content(
                             model="gemini-2.0-flash",
                             contents=[image, prompt]
@@ -94,9 +98,10 @@ if uploaded_file is not None:
                             st.success("✨ レシートデータを正常に読み込みました！")
                             
                     except Exception as e:
-                        # 文字コードエラーでクラッシュしないよう安全にエラーを表示
-                        st.error("❌ 解析中にエラーが発生しました。APIキーまたはモデルの接続を確認してください。")
-                        st.text(str(e))
+                        # 文字コードエラーでクラッシュしないよう安全にエンコードして表示
+                        err_str = str(e).encode('utf-8', errors='ignore').decode('utf-8')
+                        st.error("❌ 解析中にエラーが発生しました。")
+                        st.text(f"詳細: {err_str}")
 
 # 登録済みデータの一覧表示
 st.markdown("---")
