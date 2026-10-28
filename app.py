@@ -43,22 +43,21 @@ if uploaded_file is not None:
             st.warning("⚠️ Streamlit Secrets に `GEMINI_API_KEY` が設定されていません。")
         else:
             if st.button("🚀 領収書をAIで解析して追加", type="primary"):
-                with st.spinner("AIが複数のレシートをくまなく解析しています（数秒かかります）..."):
+                with st.spinner("AIがレシートを解析しています（数秒かかります）..."):
                     try:
                         client = genai.Client(api_key=api_key)
                         
                         prompt = """
                         あなたはプロの経理アシスタント兼AI税理士です。
-                        提供された画像には【複数の領収書やレシート（最大10枚以上）】が並べて撮影されています。
-                        画像内にあるすべてのレシート・領収書をもれなく1枚残らず個別に認識し、それぞれのデータを以下のJSONフォーマットのルールに従ってすべて抽出してください。
-                        1枚だけで終わらせず、写っているすべてのレシートの情報を配列（リスト）形式で出力してください。
+                        提供された画像には領収書やレシートが撮影されています。
+                        画像内にあるすべてのレシート・領収書をもれなく認識し、それぞれのデータを以下のJSONフォーマットのルールに従ってすべて抽出してください。
                         
                         【抽出ルール】
-                        - date: 日付 (YYYY-MM-DD形式。読み取れない場合は直近の推定日または本日の日付)
-                        - vendor: 支払先 (店舗名・会社名。例: Enejet, LAWSON, セブンイレブン, コスモスなど)
+                        - date: 日付 (YYYY-MM-DD形式。読み取れない場合は本日の日付等)
+                        - vendor: 支払先 (店舗名・会社名。例: LAWSONなど)
                         - amount: 合計金額 (数字のみ、カンマや「円」は除外の整数)
-                        - account_title: 勘定科目 (日本の個人事業主の青色申告を想定し、以下のいずれかに最も適したもの自動判定：「消耗品費」「旅費交通費」「接待交際費」「通信費」「水道光熱費」「地代家賃」「新聞図書費」「車両費」「雑費」)
-                        - description: 摘要 (購入した品目や内容、高速道路の場合は区間などのメモ)
+                        - account_title: 勘定科目 (「消耗品費」「旅費交通費」「接待交際費」「通信費」「水道光熱費」「地代家賃」「新聞図書費」「車両費」「雑費」のいずれか)
+                        - description: 摘要 (購入した品目や内容)
                         
                         必ず以下のJSON配列（リスト）形式のみを出力してください（マークダウンの ```json ... ``` の中に記述してください）。
                         [
@@ -67,13 +66,14 @@ if uploaded_file is not None:
                             "vendor": "支払先名称",
                             "amount": 1000,
                             "account_title": "旅費交通費",
-                            "description": "購入品目やガソリン等"
+                            "description": "購入品目"
                           }
                         ]
                         """
                         
+                        # モデル名を確実に動作する "gemini-2.0-flash" に変更
                         response = client.models.generate_content(
-                            model="gemini-2.5-flash",
+                            model="gemini-2.0-flash",
                             contents=[image, prompt]
                         )
                         
@@ -88,13 +88,15 @@ if uploaded_file is not None:
                         
                         if isinstance(new_items, list):
                             st.session_state.receipts_data.extend(new_items)
-                            st.success(f"✨ {len(new_items)}件のレシートデータをすべて一括で読み込みました！")
+                            st.success(f"✨ {len(new_items)}件のレシートデータを読み込みました！")
                         else:
                             st.session_state.receipts_data.append(new_items)
                             st.success("✨ レシートデータを正常に読み込みました！")
                             
                     except Exception as e:
-                        st.error(f"❌ 解析エラーが発生しました: {e}")
+                        # 文字コードエラーでクラッシュしないよう安全にエラーを表示
+                        st.error("❌ 解析中にエラーが発生しました。APIキーまたはモデルの接続を確認してください。")
+                        st.text(str(e))
 
 # 登録済みデータの一覧表示
 st.markdown("---")
@@ -116,8 +118,6 @@ if len(st.session_state.receipts_data) > 0:
         })
     
     df_yayoi = pd.DataFrame(csv_data)
-    
-    # 修正ポイント：文字列をいったん標準形式で作成し、バイトデータ（Shift-JIS）に安全にエンコード
     csv_string = df_yayoi.to_csv(index=False)
     csv_bytes = csv_string.encode("shift_jis", errors="ignore")
     
