@@ -57,8 +57,8 @@ if uploaded_file is not None:
                         img_bytes = buffered.getvalue()
                         img_base64 = base64.b64encode(img_bytes).decode("utf-8")
                         
-                        # Gemini APIへ直接リクエスト
-                        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+                        # Gemini APIへ直接リクエスト（モデル名を最新の gemini-3.8-flash に更新）
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
                         
                         prompt_text = """
                         あなたはプロの経理アシスタント兼AI税理士です。
@@ -129,7 +129,6 @@ if uploaded_file is not None:
                             st.text(str(result_json))
                             
                     except Exception as e:
-                        # どんなエラーでも絶対に文字コードでクラッシュさせない安全ガード
                         safe_err = str(e).encode("ascii", errors="ignore").decode("ascii")
                         st.error("❌ 処理中にエラーが発生しました。")
                         st.text(f"詳細: {safe_err}")
