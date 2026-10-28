@@ -1,5 +1,6 @@
 import json
 import base64
+import time
 import requests
 import pandas as pd
 import streamlit as st
@@ -35,13 +36,12 @@ if uploaded_pdf is not None:
         st.error("⚠️ Streamlit Secrets に `GEMINI_API_KEY` が設定されていません。")
     else:
         if st.button("🚀 PDFをAIが一括解析する", type="primary"):
-            with st.spinner("PDFを解析しています。少々お待ちください..."):
+            with st.spinner("PDFを解析しています（混雑時は自動で再試行します）..."):
                 try:
                     # PDFをバイナリからBase64に変換
                     pdf_bytes = uploaded_pdf.getvalue()
                     pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
                     
-                    # エラーメッセージが推奨している gemini-3.8-flash に指定
                     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
                     
                     prompt_text = """
@@ -85,10 +85,32 @@ if uploaded_pdf is not None:
                     }
                     
                     headers = {"Content-Type": "application/json"}
-                    response = requests.post(url, json=payload, headers=headers, timeout=60)
                     
-                    if response.status_code != 200:
+                    # 💡 サーバー混雑（503等）対策：自動リトライ処理（最大3回）
+                    max_retries = 3
+                    response = None
+                    success = False
+                    
+                    for attempt in range(max_retries):
+                        try:
+                            response = requests.post(url, json=payload, headers=headers, timeout=60)
+                            if response.status_code == 200:
+                                success = True
+                                break
+                            elif response.status_code == 503:
+                                # 混雑している場合は少し待ってからリトライ
+                                time.sleep(2 * (attempt + 1))
+                                continue
+                            else:
+                                break
+                        except requests.exceptions.Timeout:
+                            time.sleep(2)
+                            continue
+                    
+                    if not success and response is not None:
                         st.error(f"❌ HTTPエラー ({response.status_code}): {response.text}")
+                    elif not success:
+                        st.error("❌ サーバーとの通信がタイムアウトしました。")
                     else:
                         result_json = response.json()
                         
