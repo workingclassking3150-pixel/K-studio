@@ -47,7 +47,6 @@ if uploaded_file is not None:
                     try:
                         client = genai.Client(api_key=api_key)
                         
-                        # 10枚などの複数レシートを確実に全件抽出するための強力なプロンプト
                         prompt = """
                         あなたはプロの経理アシスタント兼AI税理士です。
                         提供された画像には【複数の領収書やレシート（最大10枚以上）】が並べて撮影されています。
@@ -80,16 +79,13 @@ if uploaded_file is not None:
                         
                         response_text = response.text.strip()
                         
-                        # マークダウンのコードブロックが含まれている場合のクリーニング
                         if "```json" in response_text:
                             response_text = response_text.split("```json")[1].split("```")[0].strip()
                         elif "```" in response_text:
                             response_text = response_text.split("```")[1].split("```")[0].strip()
                             
-                        # JSONとしてパース
                         new_items = json.loads(response_text)
                         
-                        # リスト形式で追加されるため、まとめてセッションに格納
                         if isinstance(new_items, list):
                             st.session_state.receipts_data.extend(new_items)
                             st.success(f"✨ {len(new_items)}件のレシートデータをすべて一括で読み込みました！")
@@ -108,7 +104,6 @@ if len(st.session_state.receipts_data) > 0:
     df = pd.DataFrame(st.session_state.receipts_data)
     st.dataframe(df, use_container_width=True)
     
-    # やよいの青色申告インポート用CSVデータの作成（Shift-JISエンコード対応）
     csv_data = []
     for item in st.session_state.receipts_data:
         csv_data.append({
@@ -122,7 +117,6 @@ if len(st.session_state.receipts_data) > 0:
     
     df_yayoi = pd.DataFrame(csv_data)
     
-    # やよいの青色申告に取り込める Shift-JIS 形式のCSVに変換
     csv_bytes = df_yayoi.to_csv(index=False, encoding="shift_jis", errors="ignore")
     
     col_dl, col_cl = st.columns([1, 1])
