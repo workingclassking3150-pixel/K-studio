@@ -41,8 +41,8 @@ if uploaded_pdf is not None:
                     pdf_bytes = uploaded_pdf.getvalue()
                     pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
                     
-                    # 安定性の高い gemini-1.5-flash エンドポイント
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+                    # モデル名を最新の gemini-2.5-flash に指定
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
                     
                     prompt_text = """
                     あなたはプロの経理アシスタント兼AI税理士です。
