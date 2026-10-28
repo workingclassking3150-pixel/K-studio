@@ -50,19 +50,22 @@ if uploaded_file is not None:
             if st.button("🚀 領収書をAIで解析して追加", type="primary"):
                 with st.spinner("AIがレシートを解析しています（数秒かかります）..."):
                     try:
+                        # 複数枚の大きな画像でも負荷がかからないよう、自動でサイズを最適化（リサイズ）
+                        image.thumbnail((1600, 1600))
+                        
                         # 画像をBase64に変換
                         import io as py_io
                         buffered = py_io.BytesIO()
-                        image.save(buffered, format="JPEG")
+                        image.save(buffered, format="JPEG", quality=85)
                         img_bytes = buffered.getvalue()
                         img_base64 = base64.b64encode(img_bytes).decode("utf-8")
                         
-                        # Gemini APIへ直接リクエスト（モデル名を最新の gemini-3.8-flash に更新）
-                        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
+                        # Gemini APIへ直接リクエスト
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
                         
                         prompt_text = """
                         あなたはプロの経理アシスタント兼AI税理士です。
-                        提供された画像には領収書やレシートが撮影されています。
+                        提供された画像には複数の領収書やレシートが並んで撮影されています。
                         画像内にあるすべてのレシート・領収書をもれなく認識し、それぞれのデータを以下のJSONフォーマットのルールに従ってすべて抽出してください。
                         
                         【抽出ルール】
@@ -107,7 +110,10 @@ if uploaded_file is not None:
                         # エラーレスポンスの安全なチェック
                         if "error" in result_json:
                             err_msg = result_json["error"].get("message", "不明なAPIエラー")
-                            st.error(f"❌ APIエラー: {err_msg}")
+                            if "high demand" in err_msg.lower():
+                                st.error("⚠️ サーバーが一時的に混み合っています。数秒待ってからもう一度ボタンを押してください。")
+                            else:
+                                st.error(f"❌ APIエラー: {err_msg}")
                         elif "candidates" in result_json:
                             response_text = result_json["candidates"][0]["content"]["parts"][0]["text"].strip()
                             
