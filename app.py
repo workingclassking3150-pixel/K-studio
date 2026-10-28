@@ -1,5 +1,8 @@
-import json
 import os
+# 文字コードのトラブルを防ぐため、最初にUTF-8を強制指定
+os.environ["PYTHONIOENCODING"] = "utf-8"
+
+import json
 import pandas as pd
 from PIL import Image
 import streamlit as st
@@ -44,7 +47,7 @@ if uploaded_file is not None:
             pass
             
         if not api_key:
-            st.error("⚠️ Streamlit Secrets に `GEMINI_API_KEY` が設定されていません。アプリの設定（Settings -> Secrets）をご確認ください。")
+            st.error("⚠️ Streamlit Secrets に `GEMINI_API_KEY` が設定されていません。")
         else:
             st.success("🔑 APIキーは正常に読み込まれています。")
             if st.button("🚀 領収書をAIで解析して追加", type="primary"):
@@ -98,10 +101,8 @@ if uploaded_file is not None:
                             st.success("✨ レシートデータを正常に読み込みました！")
                             
                     except Exception as e:
-                        # 文字コードエラーでクラッシュしないよう安全にエンコードして表示
-                        err_str = str(e).encode('utf-8', errors='ignore').decode('utf-8')
                         st.error("❌ 解析中にエラーが発生しました。")
-                        st.text(f"詳細: {err_str}")
+                        st.text(f"詳細: {str(e)}")
 
 # 登録済みデータの一覧表示
 st.markdown("---")
