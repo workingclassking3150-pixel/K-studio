@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 st.title("🧾 領収書自動読み取り ＆ 青色申告管理アプリ")
-st.write("スマホやPCから複数のレシート・領収書が並んだ画像をアップロードすると、AIが自動で個別に解析して青色申告用の経費データを構築します。")
+st.write("スマホやPCから複数のレシート・領収書が並んだ画像をアップロードすると、AIが個別にすべて解析し、やよいの青色申告用CSVを出力します。")
 
 # セッション状態の初期化
 if "receipts_data" not in st.session_state:
@@ -31,7 +31,7 @@ if uploaded_file is not None:
     with col1:
         st.subheader("アップロードされた画像")
         image = Image.open(uploaded_file)
-        st.image(image, use_column_width=True)
+        st.image(image, use_container_width=True)
         
     with col2:
         st.subheader("AI解析コントロール")
@@ -43,20 +43,23 @@ if uploaded_file is not None:
             st.warning("⚠️ Streamlit Secrets に `GEMINI_API_KEY` が設定されていません。")
         else:
             if st.button("🚀 領収書をAIで解析して追加", type="primary"):
-                with st.spinner("AIが複数のレシートを解析しています..."):
+                with st.spinner("AIが複数のレシートをくまなく解析しています（数秒かかります）..."):
                     try:
                         client = genai.Client(api_key=api_key)
+                        
+                        # 10枚などの複数レシートを確実に全件抽出するための強力なプロンプト
                         prompt = """
-                        あなたは優秀な経理アシスタント兼AI税理士です。
-                        提供された画像内に含まれる【すべての領収書・レシート】を個別にすべて認識し、それぞれのデータを以下のJSONフォーマットのルールに則って抽出してください。
-                        レシートが複数枚ある場合は、必ずすべてのレシートの情報を配列（リスト）に含めてください。
+                        あなたはプロの経理アシスタント兼AI税理士です。
+                        提供された画像には【複数の領収書やレシート（最大10枚以上）】が並べて撮影されています。
+                        画像内にあるすべてのレシート・領収書をもれなく1枚残らず個別に認識し、それぞれのデータを以下のJSONフォーマットのルールに従ってすべて抽出してください。
+                        1枚だけで終わらせず、写っているすべてのレシートの情報を配列（リスト）形式で出力してください。
                         
                         【抽出ルール】
                         - date: 日付 (YYYY-MM-DD形式。読み取れない場合は直近の推定日または本日の日付)
-                        - vendor: 支払先 (店舗名・会社名)
-                        - amount: 合計金額 (数字のみ、カンマや「円」は除外)
-                        - account_title: 勘定科目 (日本の個人事業主の青色申告を想定し、以下のいずれかに最も適したもの自動判定：「消耗品費」「旅費交通費」「接待交際費」「通信費」「水道光熱費」「地代家賃」「新聞図書費」「雑費」)
-                        - description: 摘要 (購入した品目や内容のメモ)
+                        - vendor: 支払先 (店舗名・会社名。例: Enejet, LAWSON, セブンイレブン, コスモスなど)
+                        - amount: 合計金額 (数字のみ、カンマや「円」は除外の整数)
+                        - account_title: 勘定科目 (日本の個人事業主の青色申告を想定し、以下のいずれかに最も適したもの自動判定：「消耗品費」「旅費交通費」「接待交際費」「通信費」「水道光熱費」「地代家賃」「新聞図書費」「車両費」「雑費」)
+                        - description: 摘要 (購入した品目や内容、高速道路の場合は区間などのメモ)
                         
                         必ず以下のJSON配列（リスト）形式のみを出力してください（マークダウンの ```json ... ``` の中に記述してください）。
                         [
@@ -64,8 +67,8 @@ if uploaded_file is not None:
                             "date": "YYYY-MM-DD",
                             "vendor": "支払先名称",
                             "amount": 1000,
-                            "account_title": "消耗品費",
-                            "description": "購入品目など"
+                            "account_title": "旅費交通費",
+                            "description": "購入品目やガソリン等"
                           }
                         ]
                         """
@@ -89,7 +92,7 @@ if uploaded_file is not None:
                         # リスト形式で追加されるため、まとめてセッションに格納
                         if isinstance(new_items, list):
                             st.session_state.receipts_data.extend(new_items)
-                            st.success(f"✨ {len(new_items)}件のレシートデータを正常に読み込みました！")
+                            st.success(f"✨ {len(new_items)}件のレシートデータをすべて一括で読み込みました！")
                         else:
                             st.session_state.receipts_data.append(new_items)
                             st.success("✨ レシートデータを正常に読み込みました！")
@@ -99,14 +102,41 @@ if uploaded_file is not None:
 
 # 登録済みデータの一覧表示
 st.markdown("---")
-st.subheader("📊 登録済み経費データ一覧")
+st.subheader("📊 登録済み経費データ一覧 & やよい連携")
 
 if len(st.session_state.receipts_data) > 0:
     df = pd.DataFrame(st.session_state.receipts_data)
     st.dataframe(df, use_container_width=True)
     
-    if st.button("🗑️ データをすべてクリア"):
-        st.session_state.receipts_data = []
-        st.rerun()
+    # やよいの青色申告インポート用CSVデータの作成（Shift-JISエンコード対応）
+    csv_data = []
+    for item in st.session_state.receipts_data:
+        csv_data.append({
+            "取引日": item.get("date", ""),
+            "借方勘定科目": item.get("account_title", "消耗品費"),
+            "借方金額": item.get("amount", 0),
+            "貸方勘定科目": "現金",
+            "貸方金額": item.get("amount", 0),
+            "摘要": f"{item.get('vendor', '')} - {item.get('description', '')}"
+        })
+    
+    df_yayoi = pd.DataFrame(csv_data)
+    
+    # やよいの青色申告に取り込める Shift-JIS 形式のCSVに変換
+    csv_bytes = df_yayoi.to_csv(index=False, encoding="shift_jis", errors="ignore")
+    
+    col_dl, col_cl = st.columns([1, 1])
+    with col_dl:
+        st.download_button(
+            label="📥 やよいの青色申告用CSVをダウンロード",
+            data=csv_bytes,
+            file_name="yayoi_keikhi.csv",
+            mime="text/csv",
+            type="primary"
+        )
+    with col_cl:
+        if st.button("🗑️ データをすべてクリア"):
+            st.session_state.receipts_data = []
+            st.rerun()
 else:
-    st.info("💡 まだデータが登録されていません。上から複数のレシートが写った画像をアップロードしてください。")
+    st.info("💡 まだデータが登録されていません。上からレシート画像をアップロードしてください。")
