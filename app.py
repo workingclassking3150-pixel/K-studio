@@ -1,8 +1,9 @@
 import json
+import base64
+import requests
 import pandas as pd
 from PIL import Image
 import streamlit as st
-from google import genai
 
 # ページの初期設定
 st.set_page_config(
@@ -49,9 +50,17 @@ if uploaded_file is not None:
             if st.button("🚀 領収書をAIで解析して追加", type="primary"):
                 with st.spinner("AIがレシートを解析しています（数秒かかります）..."):
                     try:
-                        client = genai.Client(api_key=api_key)
+                        # 画像をBase64に変換
+                        import io as py_io
+                        buffered = py_io.BytesIO()
+                        image.save(buffered, format="JPEG")
+                        img_bytes = buffered.getvalue()
+                        img_base64 = base64.b64encode(img_bytes).decode("utf-8")
                         
-                        prompt = """
+                        # Gemini APIへ直接リクエスト
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+                        
+                        prompt_text = """
                         あなたはプロの経理アシスタント兼AI税理士です。
                         提供された画像には領収書やレシートが撮影されています。
                         画像内にあるすべてのレシート・領収書をもれなく認識し、それぞれのデータを以下のJSONフォーマットのルールに従ってすべて抽出してください。
@@ -75,30 +84,55 @@ if uploaded_file is not None:
                         ]
                         """
                         
-                        response = client.models.generate_content(
-                            model="gemini-2.0-flash",
-                            contents=[image, prompt]
-                        )
+                        payload = {
+                            "contents": [
+                                {
+                                    "parts": [
+                                        {"text": prompt_text},
+                                        {
+                                            "inline_data": {
+                                                "mime_type": "image/jpeg",
+                                                "data": img_base64
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
                         
-                        response_text = response.text.strip()
+                        headers = {"Content-Type": "application/json"}
+                        response = requests.post(url, json=payload, headers=headers)
+                        result_json = response.json()
                         
-                        if "```json" in response_text:
-                            response_text = response_text.split("```json")[1].split("```")[0].strip()
-                        elif "```" in response_text:
-                            response_text = response_text.split("```")[1].split("```")[0].strip()
+                        # エラーレスポンスの安全なチェック
+                        if "error" in result_json:
+                            err_msg = result_json["error"].get("message", "不明なAPIエラー")
+                            st.error(f"❌ APIエラー: {err_msg}")
+                        elif "candidates" in result_json:
+                            response_text = result_json["candidates"][0]["content"]["parts"][0]["text"].strip()
                             
-                        new_items = json.loads(response_text)
-                        
-                        if isinstance(new_items, list):
-                            st.session_state.receipts_data.extend(new_items)
-                            st.success(f"✨ {len(new_items)}件のレシートデータを読み込みました！")
+                            if "```json" in response_text:
+                                response_text = response_text.split("```json")[1].split("```")[0].strip()
+                            elif "```" in response_text:
+                                response_text = response_text.split("```")[1].split("```")[0].strip()
+                                
+                            new_items = json.loads(response_text)
+                            
+                            if isinstance(new_items, list):
+                                st.session_state.receipts_data.extend(new_items)
+                                st.success(f"✨ {len(new_items)}件のレシートデータを読み込みました！")
+                            else:
+                                st.session_state.receipts_data.append(new_items)
+                                st.success("✨ レシートデータを正常に読み込みました！")
                         else:
-                            st.session_state.receipts_data.append(new_items)
-                            st.success("✨ レシートデータを正常に読み込みました！")
+                            st.error("❌ AIからの応答形式が予期せぬものでした。")
+                            st.text(str(result_json))
                             
                     except Exception as e:
-                        st.error("❌ 解析中にエラーが発生しました。")
-                        st.text(f"詳細: {str(e)}")
+                        # どんなエラーでも絶対に文字コードでクラッシュさせない安全ガード
+                        safe_err = str(e).encode("ascii", errors="ignore").decode("ascii")
+                        st.error("❌ 処理中にエラーが発生しました。")
+                        st.text(f"詳細: {safe_err}")
 
 # 登録済みデータの一覧表示
 st.markdown("---")
