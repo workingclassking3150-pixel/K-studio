@@ -117,7 +117,9 @@ if len(st.session_state.receipts_data) > 0:
     
     df_yayoi = pd.DataFrame(csv_data)
     
-    csv_bytes = df_yayoi.to_csv(index=False, encoding="shift_jis", errors="ignore")
+    # 修正ポイント：文字列をいったん標準形式で作成し、バイトデータ（Shift-JIS）に安全にエンコード
+    csv_string = df_yayoi.to_csv(index=False)
+    csv_bytes = csv_string.encode("shift_jis", errors="ignore")
     
     col_dl, col_cl = st.columns([1, 1])
     with col_dl:
