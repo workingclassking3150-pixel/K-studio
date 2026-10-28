@@ -2,7 +2,6 @@ import json
 import base64
 import requests
 import pandas as pd
-from PIL import Image
 import streamlit as st
 
 st.set_page_config(
@@ -11,29 +10,20 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🧾 領収書自動読み取り ＆ 青色申告管理アプリ")
-st.write("複数のレシート写真をまとめて選択できます。1枚ずつ確実に安全に解析してデータ化します。")
+st.title("🧾 領収書自動読み取り ＆ 青色申告管理アプリ（PDF一括高速版）")
+st.write("スマホのスキャンアプリ等で複数枚のレシートを**1つにまとめたPDFファイル**をアップロードしてください。AIが一撃で解析します！")
 
 if "receipts_data" not in st.session_state:
     st.session_state.receipts_data = []
 
-# 複数ファイルの選択
-uploaded_files = st.file_uploader(
-    "レシート・領収書の画像を複数選択してください（複数選択可 / JPEG・PNG）",
-    type=["jpg", "jpeg", "png"],
-    accept_multiple_files=True
+# PDFファイルをアップロード
+uploaded_pdf = st.file_uploader(
+    "レシートをまとめたPDFファイルを選択してください",
+    type=["pdf"]
 )
 
-if uploaded_files:
-    st.subheader(f"📁 選択された画像: {len(uploaded_files)}枚")
-    
-    cols = st.columns(min(len(uploaded_files), 4))
-    for idx, uploaded_file in enumerate(uploaded_files):
-        with cols[idx % len(cols)]:
-            image = Image.open(uploaded_file)
-            st.image(image, use_container_width=True, caption=f"画像 {idx+1}")
-            
-    st.markdown("---")
+if uploaded_pdf is not None:
+    st.success(f"📄 ファイルが選択されました: {uploaded_pdf.name}")
     
     api_key = ""
     try:
@@ -44,32 +34,20 @@ if uploaded_files:
     if not api_key:
         st.error("⚠️ Streamlit Secrets に `GEMINI_API_KEY` が設定されていません。")
     else:
-        st.success("🔑 APIキーは正常に読み込まれています。")
-        if st.button(f"🚀 選択した {len(uploaded_files)}枚を順番に解析して追加", type="primary"):
-            
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            success_count = 0
-            for idx, uploaded_file in enumerate(uploaded_files):
-                status_text.text(f"⏳ {idx+1}枚目のレシートを解析中...")
-                
+        if st.button("🚀 PDFをAIが一括解析する", type="primary"):
+            with st.spinner("PDFを解析しています。少々お待ちください..."):
                 try:
-                    image = Image.open(uploaded_file).convert("RGB")
-                    # サーバーに負荷をかけないよう、最適な小サイズに圧縮
-                    image.thumbnail((800, 800))
+                    # PDFをバイナリからBase64に変換
+                    pdf_bytes = uploaded_pdf.getvalue()
+                    pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
                     
-                    import io as py_io
-                    buffered = py_io.BytesIO()
-                    image.save(buffered, format="JPEG", quality=75)
-                    img_bytes = buffered.getvalue()
-                    img_base64 = base64.b64encode(img_bytes).decode("utf-8")
-                    
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
+                    # 安定性の高い gemini-1.5-flash エンドポイント
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
                     
                     prompt_text = """
                     あなたはプロの経理アシスタント兼AI税理士です。
-                    提供されたレシート画像のデータを以下のJSONフォーマットに従って抽出してください。
+                    提供されたPDFファイルに含まれているすべてのレシート・領収書のデータを、もれなく認識して抽出してください。
+                    それぞれのデータを以下のJSONフォーマットのルールに従って、必ず配列（リスト）形式ですべて抽出してください。
                     
                     【抽出ルール】
                     - date: 日付 (YYYY-MM-DD形式)
@@ -78,7 +56,16 @@ if uploaded_files:
                     - account_title: 勘定科目 (「消耗品費」「旅費交通費」「接待交際費」「通信費」「水道光熱費」「地代家賃」「新聞図書費」「車両費」「雑費」のいずれか)
                     - description: 摘要 (購入した品目や内容)
                     
-                    必ずオブジェクト形式 { ... } で、マークダウンの ```json ... ``` の中に出力してください。
+                    必ず以下のJSON配列形式のみを ```json ... ``` の中に出力してください。
+                    [
+                      {
+                        "date": "YYYY-MM-DD",
+                        "vendor": "支払先名称",
+                        "amount": 1000,
+                        "account_title": "消耗品費",
+                        "description": "購入品目"
+                      }
+                    ]
                     """
                     
                     payload = {
@@ -88,8 +75,8 @@ if uploaded_files:
                                     {"text": prompt_text},
                                     {
                                         "inline_data": {
-                                            "mime_type": "image/jpeg",
-                                            "data": img_base64
+                                            "mime_type": "application/pdf",
+                                            "data": pdf_base64
                                         }
                                     }
                                 ]
@@ -98,37 +85,42 @@ if uploaded_files:
                     }
                     
                     headers = {"Content-Type": "application/json"}
-                    response = requests.post(url, json=payload, headers=headers, timeout=30)
-                    result_json = response.json()
+                    response = requests.post(url, json=payload, headers=headers, timeout=60)
                     
-                    if "error" in result_json:
-                        err_msg = result_json["error"].get("message", "不明なエラー")
-                        st.warning(f"⚠️ {idx+1}枚目スキップ: {err_msg}")
-                    elif "candidates" in result_json:
-                        response_text = result_json["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    if response.status_code != 200:
+                        st.error(f"❌ HTTPエラー ({response.status_code}): {response.text}")
+                    else:
+                        result_json = response.json()
                         
-                        if "```json" in response_text:
-                            response_text = response_text.split("```json")[1].split("```")[0].strip()
-                        elif "```" in response_text:
-                            response_text = response_text.split("```")[1].split("```")[0].strip()
-                            
-                        new_item = json.loads(response_text)
-                        
-                        if isinstance(new_item, list):
-                            st.session_state.receipts_data.extend(new_item)
+                        if "error" in result_json:
+                            err_msg = result_json["error"].get("message", "不明なエラー")
+                            st.error(f"❌ APIエラー: {err_msg}")
+                        elif "candidates" in result_json:
+                            candidate = result_json["candidates"][0]
+                            if "content" in candidate and "parts" in candidate["content"]:
+                                response_text = candidate["content"]["parts"][0]["text"].strip()
+                                
+                                if "```json" in response_text:
+                                    response_text = response_text.split("```json")[1].split("```")[0].strip()
+                                elif "```" in response_text:
+                                    response_text = response_text.split("```")[1].split("```")[0].strip()
+                                    
+                                new_items = json.loads(response_text)
+                                
+                                if isinstance(new_items, list):
+                                    st.session_state.receipts_data.extend(new_items)
+                                    st.success(f"✨ 処理完了！ {len(new_items)}件のレシートデータを一括追加しました！")
+                                else:
+                                    st.session_state.receipts_data.append(new_items)
+                                    st.success("✨ レシートデータを追加しました！")
+                                st.rerun()
+                            else:
+                                st.error("❌ AIの応答が不完全です。")
                         else:
-                            st.session_state.receipts_data.append(new_item)
-                        success_count += 1
-                        
+                            st.error(f"❌ 予期せぬ応答です: {str(result_json)}")
+                            
                 except Exception as e:
-                    st.warning(f"⚠️ {idx+1}枚目でエラーが発生しました: {str(e)}")
-                
-                progress_bar.progress((idx + 1) / len(uploaded_files))
-            
-            status_text.empty()
-            progress_bar.empty()
-            st.success(f"✨ 処理完了！ {success_count}件のレシートデータを追加しました！")
-            st.rerun()
+                    st.error(f"❌ エラーが発生しました: {str(e)}")
 
 st.markdown("---")
 st.subheader("📊 登録済み経費データ一覧 & やよい連携")
@@ -166,4 +158,4 @@ if len(st.session_state.receipts_data) > 0:
             st.session_state.receipts_data = []
             st.rerun()
 else:
-    st.info("💡 まだデータが登録されていません。上のアップロードボタンから複数枚の写真を選択してください。")
+    st.info("💡 まだデータが登録されていません。上のアップロードボタンからレシートをまとめたPDFを選択してください。")
