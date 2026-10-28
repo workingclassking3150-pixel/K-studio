@@ -53,7 +53,6 @@ if uploaded_files:
                     imgs = []
                     for f in uploaded_files:
                         img = Image.open(f).convert("RGB")
-                        # 高さを800pxに統一してアスペクト比を維持
                         target_height = 800
                         aspect_ratio = img.width / img.height
                         target_width = int(target_height * aspect_ratio)
@@ -87,8 +86,8 @@ if uploaded_files:
                     img_bytes = buffered.getvalue()
                     img_base64 = base64.b64encode(img_bytes).decode("utf-8")
                     
-                    # 4. Gemini APIへ1回だけリクエスト送信
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+                    # 4. Gemini APIへ1回だけリクエスト送信（モデルを gemini-3.8-flash に指定）
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
                     
                     prompt_text = f"""
                     あなたはプロの経理アシスタント兼AI税理士です。
