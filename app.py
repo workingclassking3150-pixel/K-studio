@@ -12,12 +12,12 @@ st.set_page_config(
 )
 
 st.title("🧾 領収書自動読み取り ＆ 青色申告管理アプリ")
-st.write("複数のレシート写真を同時に選択してアップロードしてください。AIが自動で1枚の画像にまとめて一撃で解析し、やよいの青色申告用CSVを出力します。")
+st.write("複数のレシート写真をまとめて選択できます。1枚ずつ確実に安全に解析してデータ化します。")
 
 if "receipts_data" not in st.session_state:
     st.session_state.receipts_data = []
 
-# 複数ファイルを同時に選択可能
+# 複数ファイルの選択
 uploaded_files = st.file_uploader(
     "レシート・領収書の画像を複数選択してください（複数選択可 / JPEG・PNG）",
     type=["jpg", "jpeg", "png"],
@@ -27,7 +27,6 @@ uploaded_files = st.file_uploader(
 if uploaded_files:
     st.subheader(f"📁 選択された画像: {len(uploaded_files)}枚")
     
-    # 選択された画像をプレビュー表示
     cols = st.columns(min(len(uploaded_files), 4))
     for idx, uploaded_file in enumerate(uploaded_files):
         with cols[idx % len(cols)]:
@@ -46,53 +45,31 @@ if uploaded_files:
         st.error("⚠️ Streamlit Secrets に `GEMINI_API_KEY` が設定されていません。")
     else:
         st.success("🔑 APIキーは正常に読み込まれています。")
-        if st.button(f"🚀 選択した {len(uploaded_files)}枚を合体して一括AI解析する", type="primary"):
-            with st.spinner("画像を綺麗に並べてAIが一括解析しています..."):
+        if st.button(f"🚀 選択した {len(uploaded_files)}枚を順番に解析して追加", type="primary"):
+            
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            success_count = 0
+            for idx, uploaded_file in enumerate(uploaded_files):
+                status_text.text(f"⏳ {idx+1}枚目のレシートを解析中...")
+                
                 try:
-                    # 1. 複数画像を読み込んでリサイズ・統一
-                    imgs = []
-                    for f in uploaded_files:
-                        img = Image.open(f).convert("RGB")
-                        target_height = 800
-                        aspect_ratio = img.width / img.height
-                        target_width = int(target_height * aspect_ratio)
-                        img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
-                        imgs.append(img)
+                    image = Image.open(uploaded_file).convert("RGB")
+                    # サーバーに負荷をかけないよう、最適な小サイズに圧縮
+                    image.thumbnail((800, 800))
                     
-                    # 2. 2列のグリッド状に自動合成（コラージュ）
-                    cols_count = 2
-                    rows_count = (len(imgs) + cols_count - 1) // cols_count
-                    
-                    max_w = max(im.width for im in imgs)
-                    max_h = max(im.height for im in imgs)
-                    
-                    grid_w = max_w * cols_count
-                    grid_h = max_h * rows_count
-                    
-                    combined_image = Image.new("RGB", (grid_w, grid_h), (255, 255, 255))
-                    
-                    for idx, im in enumerate(imgs):
-                        r = idx // cols_count
-                        c = idx % cols_count
-                        x = c * max_w + (max_w - im.width) // 2
-                        y = r * max_h + (max_h - im.height) // 2
-                        combined_image.paste(im, (x, y))
-                    
-                    # 3. 合成した画像をさらに全体最適化してBase64化
-                    combined_image.thumbnail((1600, 1600))
                     import io as py_io
                     buffered = py_io.BytesIO()
-                    combined_image.save(buffered, format="JPEG", quality=80)
+                    image.save(buffered, format="JPEG", quality=75)
                     img_bytes = buffered.getvalue()
                     img_base64 = base64.b64encode(img_bytes).decode("utf-8")
                     
-                    # 4. Gemini APIへ1回だけリクエスト送信（モデルを gemini-3.8-flash に指定）
                     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
                     
-                    prompt_text = f"""
+                    prompt_text = """
                     あなたはプロの経理アシスタント兼AI税理士です。
-                    提供された画像には、{len(uploaded_files)}枚のレシートが綺麗に並べて配置されています。
-                    画像内にあるすべてのレシートをもれなく認識し、それぞれのデータを以下のJSONフォーマットのルールに従って配列（リスト）形式ですべて抽出してください。
+                    提供されたレシート画像のデータを以下のJSONフォーマットに従って抽出してください。
                     
                     【抽出ルール】
                     - date: 日付 (YYYY-MM-DD形式)
@@ -101,16 +78,7 @@ if uploaded_files:
                     - account_title: 勘定科目 (「消耗品費」「旅費交通費」「接待交際費」「通信費」「水道光熱費」「地代家賃」「新聞図書費」「車両費」「雑費」のいずれか)
                     - description: 摘要 (購入した品目や内容)
                     
-                    必ず以下のJSON配列形式のみを ```json ... ``` の中に出力してください。
-                    [
-                      {{
-                        "date": "YYYY-MM-DD",
-                        "vendor": "支払先名称",
-                        "amount": 1000,
-                        "account_title": "消耗品費",
-                        "description": "購入品目"
-                      }}
-                    ]
+                    必ずオブジェクト形式 { ... } で、マークダウンの ```json ... ``` の中に出力してください。
                     """
                     
                     payload = {
@@ -130,12 +98,12 @@ if uploaded_files:
                     }
                     
                     headers = {"Content-Type": "application/json"}
-                    response = requests.post(url, json=payload, headers=headers)
+                    response = requests.post(url, json=payload, headers=headers, timeout=30)
                     result_json = response.json()
                     
                     if "error" in result_json:
                         err_msg = result_json["error"].get("message", "不明なエラー")
-                        st.error(f"❌ APIエラー: {err_msg}")
+                        st.warning(f"⚠️ {idx+1}枚目スキップ: {err_msg}")
                     elif "candidates" in result_json:
                         response_text = result_json["candidates"][0]["content"]["parts"][0]["text"].strip()
                         
@@ -144,20 +112,23 @@ if uploaded_files:
                         elif "```" in response_text:
                             response_text = response_text.split("```")[1].split("```")[0].strip()
                             
-                        new_items = json.loads(response_text)
+                        new_item = json.loads(response_text)
                         
-                        if isinstance(new_items, list):
-                            st.session_state.receipts_data.extend(new_items)
-                            st.success(f"✨ 処理完了！ {len(new_items)}件のレシートデータを一括追加しました！")
+                        if isinstance(new_item, list):
+                            st.session_state.receipts_data.extend(new_item)
                         else:
-                            st.session_state.receipts_data.append(new_items)
-                            st.success("✨ レシートデータを追加しました！")
-                        st.rerun()
-                    else:
-                        st.error("❌ 応答形式が予期せぬものです。")
+                            st.session_state.receipts_data.append(new_item)
+                        success_count += 1
                         
                 except Exception as e:
-                    st.error(f"❌ エラーが発生しました: {str(e)}")
+                    st.warning(f"⚠️ {idx+1}枚目でエラーが発生しました: {str(e)}")
+                
+                progress_bar.progress((idx + 1) / len(uploaded_files))
+            
+            status_text.empty()
+            progress_bar.empty()
+            st.success(f"✨ 処理完了！ {success_count}件のレシートデータを追加しました！")
+            st.rerun()
 
 st.markdown("---")
 st.subheader("📊 登録済み経費データ一覧 & やよい連携")
