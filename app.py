@@ -36,13 +36,14 @@ if uploaded_pdf is not None:
         st.error("⚠️ Streamlit Secrets に `GEMINI_API_KEY` が設定されていません。")
     else:
         if st.button("🚀 PDFをAIが一括解析する", type="primary"):
-            with st.spinner("PDFを解析しています（混雑時は自動で再試行します）..."):
+            with st.spinner("PDFを解析しています..."):
                 try:
                     # PDFをバイナリからBase64に変換
                     pdf_bytes = uploaded_pdf.getvalue()
                     pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
                     
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
+                    # 安定性の高い gemini-1.5-flash に変更
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
                     
                     prompt_text = """
                     あなたはプロの経理アシスタント兼AI税理士です。
@@ -86,7 +87,7 @@ if uploaded_pdf is not None:
                     
                     headers = {"Content-Type": "application/json"}
                     
-                    # 💡 サーバー混雑（503等）対策：自動リトライ処理（最大3回）
+                    # 自動リトライ（最大3回）
                     max_retries = 3
                     response = None
                     success = False
@@ -98,8 +99,7 @@ if uploaded_pdf is not None:
                                 success = True
                                 break
                             elif response.status_code == 503:
-                                # 混雑している場合は少し待ってからリトライ
-                                time.sleep(2 * (attempt + 1))
+                                time.sleep(3 * (attempt + 1))
                                 continue
                             else:
                                 break
