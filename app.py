@@ -5,7 +5,6 @@ import pandas as pd
 from PIL import Image
 import streamlit as st
 
-# ページの初期設定
 st.set_page_config(
     page_title="領収書自動読み取り ＆ 青色申告管理アプリ",
     page_icon="🧾",
@@ -13,15 +12,13 @@ st.set_page_config(
 )
 
 st.title("🧾 領収書自動読み取り ＆ 青色申告管理アプリ")
-st.write("スマホやPCから複数のレシート・領収書が並んだ画像をアップロードすると、AIが個別にすべて解析し、やよいの青色申告用CSVを出力します。")
+st.write("複数のレシート・領収書が並んだ画像を一度にアップロードして、AIが一括解析します。")
 
-# セッション状態の初期化
 if "receipts_data" not in st.session_state:
     st.session_state.receipts_data = []
 
-# メイン画面：画像アップロード
 uploaded_file = st.file_uploader(
-    "領収書・レシートの画像をアップロードしてください（JPEG / PNG）",
+    "複数のレシートが写った画像をアップロードしてください（JPEG / PNG）",
     type=["jpg", "jpeg", "png"]
 )
 
@@ -36,7 +33,6 @@ if uploaded_file is not None:
     with col2:
         st.subheader("AI解析コントロール")
         
-        # Streamlit SecretsからAPIキーを取得
         api_key = ""
         try:
             api_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -47,41 +43,39 @@ if uploaded_file is not None:
             st.error("⚠️ Streamlit Secrets に `GEMINI_API_KEY` が設定されていません。")
         else:
             st.success("🔑 APIキーは正常に読み込まれています。")
-            if st.button("🚀 領収書をAIで解析して追加", type="primary"):
-                with st.spinner("AIがレシートを解析しています（数秒かかります）..."):
+            if st.button("🚀 まとめてAI解析して追加", type="primary"):
+                with st.spinner("多数のレシートをAIが一括解析しています..."):
                     try:
-                        # 複数枚の大きな画像でも負荷がかからないよう、自動でサイズを最適化（リサイズ）
-                        image.thumbnail((1600, 1600))
+                        # 複数枚の画像が重くならないよう、さらにピクセル数を抑えて軽量化
+                        image.thumbnail((1200, 1200))
                         
-                        # 画像をBase64に変換
                         import io as py_io
                         buffered = py_io.BytesIO()
-                        image.save(buffered, format="JPEG", quality=85)
+                        image.save(buffered, format="JPEG", quality=75)
                         img_bytes = buffered.getvalue()
                         img_base64 = base64.b64encode(img_bytes).decode("utf-8")
                         
-                        # Gemini APIへ直接リクエスト（モデルを最新の gemini-3.8-flash に指定）
                         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
                         
                         prompt_text = """
                         あなたはプロの経理アシスタント兼AI税理士です。
-                        提供された画像には複数の領収書やレシートが並んで撮影されています。
-                        画像内にあるすべてのレシート・領収書をもれなく認識し、それぞれのデータを以下のJSONフォーマットのルールに従ってすべて抽出してください。
+                        提供された画像には、複数の領収書やレシートが並べて撮影されています。
+                        写っているすべてのレシートをもれなく認識し、それぞれのデータを以下のJSONフォーマットのルールに従って配列（リスト）形式で抽出してください。
                         
                         【抽出ルール】
-                        - date: 日付 (YYYY-MM-DD形式。読み取れない場合は本日の日付等)
-                        - vendor: 支払先 (店舗名・会社名。例: LAWSONなど)
-                        - amount: 合計金額 (数字のみ、カンマや「円」は除外の整数)
+                        - date: 日付 (YYYY-MM-DD形式)
+                        - vendor: 支払先 (店舗名・会社名)
+                        - amount: 合計金額 (数字のみの整数)
                         - account_title: 勘定科目 (「消耗品費」「旅費交通費」「接待交際費」「通信費」「水道光熱費」「地代家賃」「新聞図書費」「車両費」「雑費」のいずれか)
                         - description: 摘要 (購入した品目や内容)
                         
-                        必ず以下のJSON配列（リスト）形式のみを出力してください（マークダウンの ```json ... ``` の中に記述してください）。
+                        必ず以下のJSON配列形式のみを ```json ... ``` の中に出力してください。
                         [
                           {
                             "date": "YYYY-MM-DD",
                             "vendor": "支払先名称",
                             "amount": 1000,
-                            "account_title": "旅費交通費",
+                            "account_title": "消耗品費",
                             "description": "購入品目"
                           }
                         ]
@@ -107,13 +101,9 @@ if uploaded_file is not None:
                         response = requests.post(url, json=payload, headers=headers)
                         result_json = response.json()
                         
-                        # エラーレスポンスの安全なチェック
                         if "error" in result_json:
-                            err_msg = result_json["error"].get("message", "不明なAPIエラー")
-                            if "high demand" in err_msg.lower():
-                                st.error("⚠️ サーバーが一時的に混み合っています。数秒待ってからもう一度ボタンを押してください。")
-                            else:
-                                st.error(f"❌ APIエラー: {err_msg}")
+                            err_msg = result_json["error"].get("message", "不明なエラー")
+                            st.error(f"❌ APIエラー: {err_msg}")
                         elif "candidates" in result_json:
                             response_text = result_json["candidates"][0]["content"]["parts"][0]["text"].strip()
                             
@@ -126,20 +116,16 @@ if uploaded_file is not None:
                             
                             if isinstance(new_items, list):
                                 st.session_state.receipts_data.extend(new_items)
-                                st.success(f"✨ {len(new_items)}件のレシートデータを読み込みました！")
+                                st.success(f"✨ {len(new_items)}件のレシートデータをまとめて追加しました！")
                             else:
                                 st.session_state.receipts_data.append(new_items)
-                                st.success("✨ レシートデータを正常に読み込みました！")
+                                st.success("✨ レシートデータを追加しました！")
                         else:
-                            st.error("❌ AIからの応答形式が予期せぬものでした。")
-                            st.text(str(result_json))
+                            st.error("❌ 応答形式が予期せぬものです。")
                             
                     except Exception as e:
-                        safe_err = str(e).encode("ascii", errors="ignore").decode("ascii")
-                        st.error("❌ 処理中にエラーが発生しました。")
-                        st.text(f"詳細: {safe_err}")
+                        st.error(f"❌ エラーが発生しました: {str(e)}")
 
-# 登録済みデータの一覧表示
 st.markdown("---")
 st.subheader("📊 登録済み経費データ一覧 & やよい連携")
 
@@ -176,4 +162,4 @@ if len(st.session_state.receipts_data) > 0:
             st.session_state.receipts_data = []
             st.rerun()
 else:
-    st.info("💡 まだデータが登録されていません。上からレシート画像をアップロードしてください。")
+    st.info("💡 まだデータが登録されていません。レシート画像をアップロードしてください。")
