@@ -12,12 +12,11 @@ st.set_page_config(
 )
 
 st.title("🧾 領収書自動読み取り ＆ 青色申告管理アプリ（PDF一括高速版）")
-st.write("スマホのスキャンアプリ等で複数枚のレシートを**1つにまとめたPDFファイル**をアップロードしてください。AIが一撃で解析します！")
+st.write("スマホ等で複数枚のレシートを**1つにまとめたPDFファイル**をアップロードしてください。AIが一撃で解析します！")
 
 if "receipts_data" not in st.session_state:
     st.session_state.receipts_data = []
 
-# PDFファイルをアップロード
 uploaded_pdf = st.file_uploader(
     "レシートをまとめたPDFファイルを選択してください",
     type=["pdf"]
@@ -38,12 +37,11 @@ if uploaded_pdf is not None:
         if st.button("🚀 PDFをAIが一括解析する", type="primary"):
             with st.spinner("PDFを解析しています..."):
                 try:
-                    # PDFをバイナリからBase64に変換
                     pdf_bytes = uploaded_pdf.getvalue()
                     pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
                     
-                    # 安定性の高い gemini-1.5-flash に変更
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+                    # 現在確実にサポートされている最新モデル名に変更
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
                     
                     prompt_text = """
                     あなたはプロの経理アシスタント兼AI税理士です。
@@ -87,7 +85,7 @@ if uploaded_pdf is not None:
                     
                     headers = {"Content-Type": "application/json"}
                     
-                    # 自動リトライ（最大3回）
+                    # 自動リトライ（最大3回、503やタイムアウト対策）
                     max_retries = 3
                     response = None
                     success = False
@@ -98,7 +96,7 @@ if uploaded_pdf is not None:
                             if response.status_code == 200:
                                 success = True
                                 break
-                            elif response.status_code == 503:
+                            elif response.status_code in [503, 429]:
                                 time.sleep(3 * (attempt + 1))
                                 continue
                             else:
