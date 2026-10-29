@@ -40,8 +40,8 @@ if uploaded_pdf is not None:
                     pdf_bytes = uploaded_pdf.getvalue()
                     pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
                     
-                    # 現在確実にサポートされている最新モデル名に変更
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+                    # エラーメッセージが指定している最新かつ正確な gemini-3.8-flash を使用
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
                     
                     prompt_text = """
                     あなたはプロの経理アシスタント兼AI税理士です。
@@ -85,7 +85,7 @@ if uploaded_pdf is not None:
                     
                     headers = {"Content-Type": "application/json"}
                     
-                    # 自動リトライ（最大3回、503やタイムアウト対策）
+                    # 自動リトライ（最大3回、503混雑やタイムアウト対策）
                     max_retries = 3
                     response = None
                     success = False
